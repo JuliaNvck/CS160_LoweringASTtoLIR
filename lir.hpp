@@ -85,7 +85,7 @@ struct ArrayType : Type {
 struct PtrType : Type {
     TypePtr element;
     explicit PtrType(TypePtr e) : element(std::move(e)) {}
-    void print(std::ostream& os) const override { os << "&" << element; }
+    void print(std::ostream& os) const override; // Defined after FnType
     bool equals(const Type& other) const override {
         if (dynamic_cast<const NilType*>(&other)) return true;
         auto o = dynamic_cast<const PtrType*>(&other);
@@ -122,6 +122,20 @@ struct FnType : Type {
         return true;
     }
 };
+
+// Now that FnType is complete, define PtrType::print
+inline void PtrType::print(std::ostream& os) const {
+    // Special case: function pointers print as &(...) -> ret, not &fn (...) -> ret
+    if (auto fn = dynamic_cast<const FnType*>(element.get())) {
+        os << "&(";
+        for (size_t i = 0; i < fn->params.size(); ++i) {
+            os << fn->params[i] << (i == fn->params.size() - 1 ? "" : ", ");
+        }
+        os << ") -> " << fn->ret;
+    } else {
+        os << "&" << element;
+    }
+}
 
 // Helper function to convert AST types to LIR types
 TypePtr convert_type(const std::shared_ptr<AST::Type>& ast_type);
@@ -247,8 +261,13 @@ inline std::ostream& operator<<(std::ostream& os, const Inst& inst) {
              os << arg.lhs << " = $alloc_array " << arg.amt << " " << arg.typ;
         else if constexpr (std::is_same_v<T, Call>) {
             if (arg.lhs) os << *arg.lhs << " = ";
-            os << "$call " << arg.callee;
-            for(const auto& a : arg.args) os << ", " << a;
+            os << "$call " << arg.callee << "(";
+            // Args are stored in reverse order, so print them backwards
+            for(int i = arg.args.size() - 1; i >= 0; --i) {
+                os << arg.args[i];
+                if (i > 0) os << ", ";
+            }
+            os << ")";
         }
     }, inst);
     return os << "\n";
@@ -282,17 +301,28 @@ inline std::ostream& operator<<(std::ostream& os, const Program& prog) {
         os << "}\n\n";
     }
 
-    // Print externs (lexicographically)
-    for (const auto& [name, type] : prog.externs) {
-        os << "extern " << name << " : " << type << "\n";
-    }
-    if (!prog.externs.empty()) os << "\n";
-
     // Print function pointers (lexicographically)
     for (const auto& [name, type] : prog.funptrs) {
-        os << "funptr " << name << " : " << type << "\n";
+        os << "funptr " << name << ": " << type << "\n";
     }
     if (!prog.funptrs.empty()) os << "\n";
+
+    // Print externs (lexicographically)
+    for (const auto& [name, type] : prog.externs) {
+        os << "extern " << name << ": ";
+        // Externs have FnType but print without "fn" keyword
+        if (auto fn = dynamic_cast<const FnType*>(type.get())) {
+            os << "(";
+            for (size_t i = 0; i < fn->params.size(); ++i) {
+                os << fn->params[i] << (i == fn->params.size() - 1 ? "" : ", ");
+            }
+            os << ") -> " << fn->ret;
+        } else {
+            os << type;
+        }
+        os << "\n";
+    }
+    if (!prog.externs.empty()) os << "\n";
 
     // Print functions (lexicographically)
     for (const auto& [name, func] : prog.functions) {
@@ -303,13 +333,27 @@ inline std::ostream& operator<<(std::ostream& os, const Program& prog) {
         }
         os << ") -> " << func.rettyp << " {\n";
 
-        // Print locals (lexicographically)
-        if (!func.locals.empty()) {
+        // Print locals (lexicographically), excluding params
+        // First, create a set of param names for quick lookup
+        std::set<std::string> param_names;
+        for (const auto& [pname, ptype] : func.params) {
+            param_names.insert(pname);
+        }
+        
+        // Count non-param locals
+        std::map<VarId, TypePtr> non_param_locals;
+        for (const auto& [local, type] : func.locals) {
+            if (param_names.find(local) == param_names.end()) {
+                non_param_locals[local] = type;
+            }
+        }
+        
+        if (!non_param_locals.empty()) {
             os << "let ";
             size_t i = 0;
-            for (const auto& [local, type] : func.locals) {
+            for (const auto& [local, type] : non_param_locals) {
                 os << local << ":" << type;
-                if (i < func.locals.size() - 1) os << ", ";
+                if (i < non_param_locals.size() - 1) os << ", ";
                 i++;
             }
             os << "\n";

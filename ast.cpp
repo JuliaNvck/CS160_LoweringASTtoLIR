@@ -377,9 +377,10 @@ std::unique_ptr<Exp> buildExp(const nlohmann::json& j) {
 
 // Parses FunCall representation from JSON.
 std::unique_ptr<FunCall> buildFunCall(const nlohmann::json& j) {
-    auto callee = buildExp(j.at(0));
+    // TS7 uses object format: {"callee": exp, "args": [exp...]}
+    auto callee = buildExp(j.at("callee"));
     std::vector<std::unique_ptr<Exp>> args;
-    for (const auto& argJson : j.at(1)) {
+    for (const auto& argJson : j.at("args")) {
         args.push_back(buildExp(argJson));
     }
     return std::make_unique<FunCall>(std::move(callee), std::move(args));
@@ -509,17 +510,17 @@ std::unique_ptr<StructDef> buildStructDef(const nlohmann::json& j) {
 Extern buildExtern(const nlohmann::json& j) {
     std::string name = j.at("name");
     
-    std::vector<std::shared_ptr<Type>> paramTypes;
-    for (const auto& paramJson : j.at("prms")) {
-        paramTypes.push_back(buildType(paramJson));
+    // TS7: externs use {"name": string, "typ": FnType} format
+    auto fnType = buildType(j.at("typ"));
+    auto fnTypePtr = std::dynamic_pointer_cast<FnType>(fnType);
+    if (!fnTypePtr) {
+        throw std::runtime_error("Extern type must be a function type");
     }
-    
-    auto returnType = buildType(j.at("rettyp"));
     
     Extern ext;
     ext.name = name;
-    ext.param_types = paramTypes;
-    ext.rettype = returnType;
+    ext.param_types = fnTypePtr->paramTypes;
+    ext.rettype = fnTypePtr->returnType;
     return ext;
 }
 

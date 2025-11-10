@@ -89,6 +89,8 @@ void Lowerer::visit(AST::FunctionDef* n) {
     m_label_counter = 1; // Start label counter at 1 instead of 0
     m_tmp_counter = 1; // Start temp counter at 1 instead of 0
     m_const_values.clear(); // Clear const values map
+    m_released_inner_vars.clear(); // Clear released variables for new function
+    m_released_non_inner_vars.clear(); // Clear released variables for new function
     // m_current_fun->locals is already populated with params/locals
 
     // 2. Create entry label: [Label("entry")]
