@@ -74,8 +74,8 @@ private:
     int m_label_counter = 0;
     int m_tmp_counter = 0;
     
-    // Track where to insert const instructions (after entry label)
-    size_t m_const_insert_pos = 1;
+    // Map to store const variable names and their values (for sorted insertion)
+    std::map<LIR::VarId, int> m_const_values;
 
     // --- Loop Context ---
     // Stacks to keep track of the current loop's header/end labels

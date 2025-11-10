@@ -223,6 +223,7 @@ struct Val : public Exp {
 struct Num : public Exp {
     long long value;
     explicit Num(long long val) : value(val) {}
+    ~Num() override;
     void print(std::ostream& os) const override { os << "Num(" << value << ")"; }
     std::shared_ptr<Type> check(const Gamma& gamma, const Delta& delta) const override;
      std::string toString() const override { return "Num(" + std::to_string(value) + ")"; }
@@ -264,6 +265,7 @@ struct BinOp : public Exp {
     std::unique_ptr<Exp> right;
     BinOp(BinaryOp o, std::unique_ptr<Exp> l, std::unique_ptr<Exp> r)
     : op(o), left(std::move(l)), right(std::move(r)) {}
+    ~BinOp() override;
     void print(std::ostream& os) const override;
     std::shared_ptr<Type> check(const Gamma& gamma, const Delta& delta) const override;
     std::string toString() const override;

@@ -87,11 +87,11 @@ void Lowerer::visit(AST::FunctionDef* n) {
     m_tv.clear();
     m_label_counter = 0;
     m_tmp_counter = 0;
-    m_const_insert_pos = 1; // Reset const insertion position (after entry label)
+    m_const_values.clear(); // Clear const values map
     // m_current_fun->locals is already populated with params/locals
 
-    // 2. Create entry label: [Label("{fun.name}_entry")]
-    m_tv.push_back(TvLabel{n->name + "_entry"});
+    // 2. Create entry label: [Label("entry")]
+    m_tv.push_back(TvLabel{"entry"});
 
     // 3. Compute ⟦f.stmts⟧ˢ
     lower_stmt(n->body.get());
@@ -801,7 +801,7 @@ void Lowerer::release(std::vector<LIR::VarId> vars) {
 
 // Returns a variable whose value is the constant `n`. If one doesn't currently exist then 
 // (1) creates the variable and inserts it into the function's local variables, and 
-// (2) inserts a `$const` instruction at the top of the `entry` block assigning its value.
+// (2) records it for later insertion.
 // named `_const_<num>`, where `<num>` is the constant value (negative values should have an `n` in front instead of a `-`).
 LIR::VarId Lowerer::const_var(int n) {
     // ⟦const(n)⟧
@@ -810,11 +810,8 @@ LIR::VarId Lowerer::const_var(int n) {
     if (m_current_fun->locals.find(name) == m_current_fun->locals.end()) {
         // Not found, create it and insert into locals
         m_current_fun->locals[name] = std::make_shared<LIR::IntType>();
-        
-        // Insert $const instruction at the tracked position (after entry label, before other constants)
-        // This ensures constants stay in order and at the top of the entry block
-        m_tv.insert(m_tv.begin() + m_const_insert_pos, LIR::Const{name, n});
-        m_const_insert_pos++; // Increment so next const goes after this one
+        // Record the constant value for later insertion
+        m_const_values[name] = n;
     }
     return name;
 }
@@ -957,6 +954,17 @@ LIR::RelOp Lowerer::convert_rel_op(AST::BinaryOp op) {
 void Lowerer::build_cfg() {
     LIR::BasicBlock* current_bb = nullptr;
     
+    // First, insert all const instructions at the beginning of m_tv (after entry label)
+    // in sorted order by variable name (which gives lexicographic order)
+    std::vector<TranslationItem> const_insts;
+    for (const auto& [name, value] : m_const_values) {
+        const_insts.push_back(LIR::Const{name, value});
+    }
+    // Insert after the entry label (position 1)
+    if (!const_insts.empty()) {
+        m_tv.insert(m_tv.begin() + 1, const_insts.begin(), const_insts.end());
+    }
+    
     for (const auto& item : m_tv) {
         if (std::holds_alternative<TvLabel>(item)) {
             // This is a Label. It starts a new BasicBlock.
@@ -970,7 +978,7 @@ void Lowerer::build_cfg() {
             // This is a regular instruction.
             if (!current_bb) {
                 // This can happen for $const instructions added to the top
-                current_bb = &m_current_fun->body.at(m_current_fun->name + "_entry");
+                current_bb = &m_current_fun->body.at("entry");
             }
             current_bb->insts.push_back(std::get<LIR::Inst>(item));
         }
@@ -995,7 +1003,7 @@ void Lowerer::remove_unreachable_blocks() {
     std::vector<LIR::BbId> worklist;
     
     // Start from entry block
-    LIR::BbId entry_label = m_current_fun->name + "_entry";
+    LIR::BbId entry_label = "entry";
     worklist.push_back(entry_label);
     reachable.insert(entry_label);
     

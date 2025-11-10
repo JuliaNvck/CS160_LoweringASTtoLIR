@@ -263,7 +263,7 @@ inline std::ostream& operator<<(std::ostream& os, const Terminal& term) {
         else if constexpr (std::is_same_v<T, Branch>)
             os << "$branch " << arg.guard << ", " << arg.tt << ", " << arg.ff;
         else if constexpr (std::is_same_v<T, Ret>) {
-            os << "$return";
+            os << "$ret";
             if (arg.val) os << " " << *arg.val;
         }
         else if constexpr (std::is_same_v<T, std::monostate>)
@@ -304,13 +304,20 @@ inline std::ostream& operator<<(std::ostream& os, const Program& prog) {
         os << ") -> " << func.rettyp << " {\n";
 
         // Print locals (lexicographically)
-        for (const auto& [local, type] : func.locals) {
-            os << "  local " << local << ": " << type << "\n";
+        if (!func.locals.empty()) {
+            os << "let ";
+            size_t i = 0;
+            for (const auto& [local, type] : func.locals) {
+                os << local << ":" << type;
+                if (i < func.locals.size() - 1) os << ", ";
+                i++;
+            }
+            os << "\n";
         }
 
         // Print basic blocks (entry first, then lexicographical)
         std::list<BbId> labels;
-        std::string entry_label = func.name + "_entry";
+        std::string entry_label = "entry";
         if (func.body.count(entry_label)) {
             labels.push_back(entry_label);
         }
