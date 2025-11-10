@@ -212,7 +212,7 @@ inline std::ostream& operator<<(std::ostream& os, ArithOp op) {
 inline std::ostream& operator<<(std::ostream& os, RelOp op) {
     switch (op) {
         case RelOp::Eq:    return os << "eq";
-        case RelOp::NotEq: return os << "neq";
+        case RelOp::NotEq: return os << "ne";
         case RelOp::Lt:    return os << "lt";
         case RelOp::Lte:   return os << "lte";
         case RelOp::Gt:    return os << "gt";
@@ -261,7 +261,7 @@ inline std::ostream& operator<<(std::ostream& os, const Terminal& term) {
         if constexpr (std::is_same_v<T, Jump>)
             os << "$jump " << arg.target;
         else if constexpr (std::is_same_v<T, Branch>)
-            os << "$branch " << arg.guard << ", " << arg.tt << ", " << arg.ff;
+            os << "$branch " << arg.guard << " " << arg.tt << " " << arg.ff;
         else if constexpr (std::is_same_v<T, Ret>) {
             os << "$ret";
             if (arg.val) os << " " << *arg.val;

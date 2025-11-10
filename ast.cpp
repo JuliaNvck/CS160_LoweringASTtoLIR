@@ -269,7 +269,18 @@ std::unique_ptr<Exp> buildExp(const nlohmann::json& j) {
         return std::make_unique<Val>(std::move(place));
     } else if (j.contains("UnOp")) {
         const auto& unop = j.at("UnOp");
-        std::string opStr = unop.at(0);
+        std::string opStr;
+        nlohmann::json expJson;
+        
+        // Handle both array format ["Neg", exp] and object format {"op": "Neg", "exp": exp}
+        if (unop.is_array()) {
+            opStr = unop.at(0);
+            expJson = unop.at(1);
+        } else {
+            opStr = unop.at("op");
+            expJson = unop.at("exp");
+        }
+        
         UnaryOp op;
         if (opStr == "Neg") {
             op = UnaryOp::Neg;
@@ -278,11 +289,24 @@ std::unique_ptr<Exp> buildExp(const nlohmann::json& j) {
         } else {
             throw std::runtime_error("Unknown unary operator: " + opStr);
         }
-        auto exp = buildExp(unop.at(1));
+        auto exp = buildExp(expJson);
         return std::make_unique<UnOp>(op, std::move(exp));
     } else if (j.contains("BinOp")) {
         const auto& binop = j.at("BinOp");
-        std::string opStr = binop.at(0);
+        std::string opStr;
+        nlohmann::json leftJson, rightJson;
+        
+        // Handle both array format ["Add", left, right] and object format {"op": "Add", "left": left, "right": right}
+        if (binop.is_array()) {
+            opStr = binop.at(0);
+            leftJson = binop.at(1);
+            rightJson = binop.at(2);
+        } else {
+            opStr = binop.at("op");
+            leftJson = binop.at("left");
+            rightJson = binop.at("right");
+        }
+        
         BinaryOp op;
         if (opStr == "Add") op = BinaryOp::Add;
         else if (opStr == "Sub") op = BinaryOp::Sub;
@@ -299,14 +323,15 @@ std::unique_ptr<Exp> buildExp(const nlohmann::json& j) {
         else {
             throw std::runtime_error("Unknown binary operator: " + opStr);
         }
-        auto left = buildExp(binop.at(1));
-        auto right = buildExp(binop.at(2));
+        auto left = buildExp(leftJson);
+        auto right = buildExp(rightJson);
         return std::make_unique<BinOp>(op, std::move(left), std::move(right));
     } else if (j.contains("Select")) {
         const auto& sel = j.at("Select");
-        auto guard = buildExp(sel.at(0));
-        auto trueBranch = buildExp(sel.at(1));
-        auto falseBranch = buildExp(sel.at(2));
+        // TS3 uses object format: {"guard": exp, "tt": exp, "ff": exp}
+        auto guard = buildExp(sel.at("guard"));
+        auto trueBranch = buildExp(sel.at("tt"));
+        auto falseBranch = buildExp(sel.at("ff"));
         return std::make_unique<Select>(std::move(guard), std::move(trueBranch), std::move(falseBranch));
     } else if (j.contains("Call")) {
         auto funcall = buildFunCall(j.at("Call"));
@@ -336,6 +361,18 @@ std::unique_ptr<FunCall> buildFunCall(const nlohmann::json& j) {
 
 // Parses Statement representations from JSON.
 std::unique_ptr<Stmt> buildStmt(const nlohmann::json& j) {
+    // TS3: Break and Continue can be bare strings in statement arrays
+    if (j.is_string()) {
+        std::string s = j;
+        if (s == "Break") {
+            return std::make_unique<Break>();
+        } else if (s == "Continue") {
+            return std::make_unique<Continue>();
+        } else {
+            throw std::runtime_error("Unknown statement string: " + s);
+        }
+    }
+    
     if (j.contains("Assign")) {
         const auto& assign = j.at("Assign");
         auto lhs = buildPlace(assign.at(0));
@@ -346,18 +383,37 @@ std::unique_ptr<Stmt> buildStmt(const nlohmann::json& j) {
         return std::make_unique<CallStmt>(std::move(funcall));
     } else if (j.contains("If")) {
         const auto& ifstmt = j.at("If");
-        auto guard = buildExp(ifstmt.at(0));
-        auto trueBranch = buildStmt(ifstmt.at(1));
-        std::optional<std::unique_ptr<Stmt>> falseBranch;
-        if (ifstmt.size() > 2 && !ifstmt.at(2).is_null()) {
-            falseBranch = buildStmt(ifstmt.at(2));
+        // TS3 uses object format: {"guard": exp, "tt": [stmts], "ff": [stmts]}
+        auto guard = buildExp(ifstmt.at("guard"));
+        
+        // tt and ff are arrays of statements
+        auto trueBranchStmts = std::make_unique<Stmts>();
+        for (const auto& stmtJson : ifstmt.at("tt")) {
+            trueBranchStmts->statements.push_back(buildStmt(stmtJson));
         }
-        return std::make_unique<If>(std::move(guard), std::move(trueBranch), std::move(falseBranch));
+        
+        std::optional<std::unique_ptr<Stmt>> falseBranch;
+        if (ifstmt.contains("ff") && ifstmt.at("ff").is_array() && !ifstmt.at("ff").empty()) {
+            auto falseBranchStmts = std::make_unique<Stmts>();
+            for (const auto& stmtJson : ifstmt.at("ff")) {
+                falseBranchStmts->statements.push_back(buildStmt(stmtJson));
+            }
+            falseBranch = std::move(falseBranchStmts);
+        }
+        
+        return std::make_unique<If>(std::move(guard), std::move(trueBranchStmts), std::move(falseBranch));
     } else if (j.contains("While")) {
         const auto& whilestmt = j.at("While");
+        // TS3 uses array format: [guard, [stmts]]
         auto guard = buildExp(whilestmt.at(0));
-        auto body = buildStmt(whilestmt.at(1));
-        return std::make_unique<While>(std::move(guard), std::move(body));
+        
+        // Body is an array of statements
+        auto bodyStmts = std::make_unique<Stmts>();
+        for (const auto& stmtJson : whilestmt.at(1)) {
+            bodyStmts->statements.push_back(buildStmt(stmtJson));
+        }
+        
+        return std::make_unique<While>(std::move(guard), std::move(bodyStmts));
     } else if (j.contains("Return")) {
         std::optional<std::unique_ptr<Exp>> exp;
         if (!j.at("Return").is_null()) {

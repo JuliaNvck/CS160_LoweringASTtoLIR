@@ -85,8 +85,8 @@ void Lowerer::visit(AST::FunctionDef* n) {
     // 1. Set context
     m_current_fun = &m_lir_prog->functions.at(n->name);
     m_tv.clear();
-    m_label_counter = 0;
-    m_tmp_counter = 0;
+    m_label_counter = 1; // Start label counter at 1 instead of 0
+    m_tmp_counter = 1; // Start temp counter at 1 instead of 0
     m_const_values.clear(); // Clear const values map
     // m_current_fun->locals is already populated with params/locals
 
@@ -749,13 +749,13 @@ void Lowerer::lower_stmt(AST::Stmt* stmt) {
 // The name should be `_inner<num>`, where `<num>` is a counter that is incremented each time `fresh_{inner, non_inner}_var` are called.
 LIR::VarId Lowerer::fresh_inner_var(LIR::TypePtr type) {
     // ⟦fresh_inner_var(τ)⟧
-    // Check if we have a released var of the same type to reuse
-    for (auto it = m_released_inner_vars.begin(); it != m_released_inner_vars.end(); ++it) {
-        LIR::VarId var_id = *it;
+    // Check if we have a released var of the same type to reuse (search in reverse for LIFO)
+    for (int i = m_released_inner_vars.size() - 1; i >= 0; --i) {
+        LIR::VarId var_id = m_released_inner_vars[i];
         LIR::TypePtr var_type = typeof_var(var_id);
         if (var_type && type && var_type->equals(*type)) {
-            // Reuse this var
-            m_released_inner_vars.erase(it);
+            // Reuse this var - remove it from the vector
+            m_released_inner_vars.erase(m_released_inner_vars.begin() + i);
             return var_id;
         }
     }
@@ -767,13 +767,13 @@ LIR::VarId Lowerer::fresh_inner_var(LIR::TypePtr type) {
 // The name should be `_tmp<num>`, where `<num>` is a counter that is incremented each time `fresh_{inner, non_inner}_var` are called.
 LIR::VarId Lowerer::fresh_non_inner_var(LIR::TypePtr type) {
     // ⟦fresh_non_inner_var(τ)⟧
-    // Check if we have a released var of the same type to reuse
-    for (auto it = m_released_non_inner_vars.begin(); it != m_released_non_inner_vars.end(); ++it) {
-        LIR::VarId var_id = *it;
+    // Check if we have a released var of the same type to reuse (search in reverse for LIFO)
+    for (int i = m_released_non_inner_vars.size() - 1; i >= 0; --i) {
+        LIR::VarId var_id = m_released_non_inner_vars[i];
         LIR::TypePtr var_type = typeof_var(var_id);
         if (var_type && type && var_type->equals(*type)) {
-            // Reuse this var
-            m_released_non_inner_vars.erase(it);
+            // Reuse this var - remove it from the vector
+            m_released_non_inner_vars.erase(m_released_non_inner_vars.begin() + i);
             return var_id;
         }
     }
@@ -791,10 +791,10 @@ void Lowerer::release(std::vector<LIR::VarId> vars) {
         // Only release fresh temporaries (ignore user-defined variables)
         if (var.find("_inner") == 0) {
             // _inner variable
-            m_released_inner_vars.insert(var);
+            m_released_inner_vars.push_back(var);
         } else if (var.find("_tmp") == 0) {
             // _tmp (non-inner) variable
-            m_released_non_inner_vars.insert(var);
+            m_released_non_inner_vars.push_back(var);
         }
     }
 }
@@ -985,7 +985,7 @@ void Lowerer::build_cfg() {
         else if (std::holds_alternative<LIR::Terminal>(item)) {
             // This is a terminal. It ends the current BasicBlock.
             if (!current_bb) {
-                 std::cerr << "Warning: Terminal without a preceding label.\n";
+                 // Unreachable code - terminal without a block. Just skip it.
                  continue;
             }
             current_bb->term = std::get<LIR::Terminal>(item);
