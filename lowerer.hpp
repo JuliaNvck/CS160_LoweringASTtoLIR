@@ -83,6 +83,11 @@ private:
     std::vector<LIR::BbId> m_loop_hdr_stack;
     std::vector<LIR::BbId> m_loop_end_stack;
 
+    // --- Released Vars ---
+    // Sets to keep track of released inner and non-inner vars
+    std::set<LIR::VarId> m_released_inner_vars;
+    std::set<LIR::VarId> m_released_non_inner_vars;
+
     // --- Helper Functions (from lower.md) ---
 
     // Wrappers to call accept and get the result
@@ -101,7 +106,7 @@ private:
     LIR::VarId const_var(int n);
 
     // ⟦label()⟧
-    LIR::BbId new_label(const std::string& prefix = "lbl");
+    LIR::BbId new_label();
 
     // ⟦typeof(x)⟧
     LIR::TypePtr typeof_var(LIR::VarId id);
@@ -120,6 +125,7 @@ private:
 
     // --- Pass 2: TV -> CFG ---
     void build_cfg();
+    void remove_unreachable_blocks();
     
     // Helper to convert AST types to LIR types
     LIR::TypePtr convert_type(const std::shared_ptr<AST::Type>& ast_type);

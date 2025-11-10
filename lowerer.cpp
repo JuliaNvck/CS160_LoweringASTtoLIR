@@ -190,9 +190,9 @@ void Lowerer::visit(AST::CallStmt* n) {
 void Lowerer::visit(AST::If* n) {
     // ⟦If(guard, tt, ff)⟧ˢ =
     //   let TT = label(), FF = label(), END = label()
-    LIR::BbId TT = new_label("if_true");
-    LIR::BbId FF = new_label("if_false");
-    LIR::BbId END = new_label("if_end");
+    LIR::BbId TT = new_label();
+    LIR::BbId FF = new_label();
+    LIR::BbId END = new_label();
     
     //   let x = ⟦guard⟧ᵉ
     LIR::VarId x = lower_exp(n->guard.get());
@@ -230,9 +230,9 @@ void Lowerer::visit(AST::If* n) {
 void Lowerer::visit(AST::While* n) {
     // ⟦While(guard, body)⟧ˢ =
     //   let LOOP_HDR = label(), BODY = label(), LOOP_END = label()
-    LIR::BbId LOOP_HDR = new_label("loop_hdr");
-    LIR::BbId BODY = new_label("loop_body");
-    LIR::BbId LOOP_END = new_label("loop_end");
+    LIR::BbId LOOP_HDR = new_label();
+    LIR::BbId BODY = new_label();
+    LIR::BbId LOOP_END = new_label();
     
     // Push loop labels onto stacks for break/continue
     m_loop_hdr_stack.push_back(LOOP_HDR);
@@ -348,9 +348,9 @@ void Lowerer::visit(AST::Select* n) {
     // if z == "__NULL" and w == "__NULL".
     //     ⟦Select(g, tt, ff)⟧ᵉ =
     //   let TT = label(), FF = label(), END = label()
-    LIR::BbId TT = new_label("if_true");
-    LIR::BbId FF = new_label("if_false");
-    LIR::BbId END = new_label("if_end");
+    LIR::BbId TT = new_label();
+    LIR::BbId FF = new_label();
+    LIR::BbId END = new_label();
     //   let x = Id("__NULL")
     LIR::VarId x = "__NULL";
     //   let y = ⟦g⟧ᵉ
@@ -491,9 +491,9 @@ void Lowerer::visit(AST::BinOp* n) {
             //     ⟦Select(g, tt, ff)⟧ᵉ =
             //   let TT = label(), FF = label(), END = label()
             auto zero_num = std::make_unique<AST::Num>(0);
-            LIR::BbId TT = new_label("and_true");
-            LIR::BbId FF = new_label("and_false");
-            LIR::BbId END = new_label("and_end");
+            LIR::BbId TT = new_label();
+            LIR::BbId FF = new_label();
+            LIR::BbId END = new_label();
             //   let x = Id("__NULL")
             LIR::VarId x = "__NULL";
             //   let y = ⟦g⟧ᵉ
@@ -549,8 +549,8 @@ void Lowerer::visit(AST::BinOp* n) {
         {
             //  ⟦BinOp(Or, left, right)⟧ᵉ =
             //   let FF = label(), END = label()
-            LIR::BbId FF = new_label("or_false");
-            LIR::BbId END = new_label("or_end");
+            LIR::BbId FF = new_label();
+            LIR::BbId END = new_label();
             //   let x = ⟦left⟧ᵉ
             LIR::VarId x = lower_exp(n->left.get());
             //   let y = fresh_non_inner_var(Int)
@@ -667,16 +667,27 @@ void Lowerer::visit(AST::FieldAccess* n) {
     //   release([src])
     //   lhs
     LIR::VarId src = lower_exp(n->ptr.get());
+    
+    //   let sid = id s.t. typeof(src) = Ptr(Struct(id))
     LIR::TypePtr ptr_type = typeof_var(src);
     LIR::TypePtr struct_type = typeof_ptr_element(ptr_type);
     auto struct_type_cast = std::dynamic_pointer_cast<LIR::StructType>(struct_type);
     if (!struct_type_cast) {
         throw std::runtime_error("FieldAccess on non-struct pointer type");
     }
-    LIR::VarId sid = fresh_inner_var(ptr_type);
-    LIR::VarId lhs = fresh_inner_var(std::make_shared<LIR::PtrType>(typeof_struct_field(struct_type_cast, n->field)));
+    LIR::StructId sid = struct_type_cast->id; 
+    
+    //   let lhs = fresh_inner_var(Ptr(typeof(sid[fld])))
+    LIR::TypePtr field_type = typeof_field(sid, n->field); 
+    LIR::VarId lhs = fresh_inner_var(std::make_shared<LIR::PtrType>(field_type));
+    
+    //   % Gfp(lhs, src, sid, fld)
     m_tv.push_back(LIR::Gfp{lhs, src, sid, n->field});
+    
+    //   release([src])
     release({src});
+    
+    //   lhs
     m_last_result_id = lhs;
 }
 
@@ -732,34 +743,72 @@ void Lowerer::lower_stmt(AST::Stmt* stmt) {
     stmt->accept(*this);
 }
 
+// Returns a fresh variable (i.e., unique within this function) of type τ. 
+// Reuses a previously-created fresh variable if possible, that is, if one of type τ was created already for this function and then released 
+// otherwise creates a new fresh variable and inserts it onto the enclosing function's locals.
+// The name should be `_inner<num>`, where `<num>` is a counter that is incremented each time `fresh_{inner, non_inner}_var` are called.
 LIR::VarId Lowerer::fresh_inner_var(LIR::TypePtr type) {
     // ⟦fresh_inner_var(τ)⟧
-    // TODO: Implement var reuse
+    // Check if we have a released var of the same type to reuse
+    for (auto it = m_released_inner_vars.begin(); it != m_released_inner_vars.end(); ++it) {
+        LIR::VarId var_id = *it;
+        LIR::TypePtr var_type = typeof_var(var_id);
+        if (var_type && type && var_type->equals(*type)) {
+            // Reuse this var
+            m_released_inner_vars.erase(it);
+            return var_id;
+        }
+    }
     LIR::VarId name = "_inner" + std::to_string(m_tmp_counter++);
     m_current_fun->locals[name] = type;
     return name;
 }
 
+// The name should be `_tmp<num>`, where `<num>` is a counter that is incremented each time `fresh_{inner, non_inner}_var` are called.
 LIR::VarId Lowerer::fresh_non_inner_var(LIR::TypePtr type) {
     // ⟦fresh_non_inner_var(τ)⟧
-    // TODO: Implement var reuse
+    // Check if we have a released var of the same type to reuse
+    for (auto it = m_released_non_inner_vars.begin(); it != m_released_non_inner_vars.end(); ++it) {
+        LIR::VarId var_id = *it;
+        LIR::TypePtr var_type = typeof_var(var_id);
+        if (var_type && type && var_type->equals(*type)) {
+            // Reuse this var
+            m_released_non_inner_vars.erase(it);
+            return var_id;
+        }
+    }
     LIR::VarId name = "_tmp" + std::to_string(m_tmp_counter++);
     m_current_fun->locals[name] = type;
     return name;
 }
 
+// Releases previously-created fresh variables to be used again by `fresh_inner_var()` and `fresh_non_inner_var()`. 
+// For convenience the arguments can include user-defined program variables as well as variables created 
+// by `fresh_inner_var()` and `fresh_non_inner_var()`---only the fresh temporaries are considered released, the user-defined variables are ignored.
 void Lowerer::release(std::vector<LIR::VarId> vars) {
     // ⟦release([op...])⟧
-    // TODO: Implement var reuse by adding vars to a free-list
-    (void)vars; // Suppress unused warning
+    for (const auto& var : vars) {
+        // Only release fresh temporaries (ignore user-defined variables)
+        if (var.find("_inner") == 0) {
+            // _inner variable
+            m_released_inner_vars.insert(var);
+        } else if (var.find("_tmp") == 0) {
+            // _tmp (non-inner) variable
+            m_released_non_inner_vars.insert(var);
+        }
+    }
 }
 
+// Returns a variable whose value is the constant `n`. If one doesn't currently exist then 
+// (1) creates the variable and inserts it into the function's local variables, and 
+// (2) inserts a `$const` instruction at the top of the `entry` block assigning its value.
+// named `_const_<num>`, where `<num>` is the constant value (negative values should have an `n` in front instead of a `-`).
 LIR::VarId Lowerer::const_var(int n) {
     // ⟦const(n)⟧
     std::string name = "_const_" + (n < 0 ? "n" + std::to_string(-n) : std::to_string(n));
     
     if (m_current_fun->locals.find(name) == m_current_fun->locals.end()) {
-        // Not found, create it
+        // Not found, create it and insert into locals
         m_current_fun->locals[name] = std::make_shared<LIR::IntType>();
         
         // Insert $const instruction at the tracked position (after entry label, before other constants)
@@ -770,11 +819,16 @@ LIR::VarId Lowerer::const_var(int n) {
     return name;
 }
 
-LIR::BbId Lowerer::new_label(const std::string& prefix) {
+// Creates and returns a fresh basic block label. 
+// The label should be named `lbl<num>`, where `<num>` is a counter that is incremented each time `label` is called.
+LIR::BbId Lowerer::new_label() {
     // ⟦label()⟧
-    return prefix + std::to_string(m_label_counter++);
+    return "lbl" + std::to_string(m_label_counter++);
 }
 
+// Returns the type of variable `x`. 
+// The type is retrieved by looking first at the enclosing function's locals, 
+// then it's parameters, then `LIR::Program.{funptrs, externs}`.
 LIR::TypePtr Lowerer::typeof_var(LIR::VarId id) {
     // ⟦typeof(x)⟧
     // 1. Check locals
@@ -798,14 +852,13 @@ LIR::TypePtr Lowerer::typeof_var(LIR::VarId id) {
         return it_ex->second;
     }
 
+    // 5. Check for special __NULL identifier
     if (id == "__NULL") {
         return std::make_shared<LIR::NilType>();
     }
     
-    std::cerr << "Warning: Could not find type for VarId: " << id << std::endl;
-    // throw std::runtime_error("Could not find type for VarId: " + id);
-    // Return a dummy type to avoid crashing, though this indicates an error
-    return std::make_shared<LIR::IntType>(); // Or some error type
+    // Variable not found - this indicates a bug in the lowerer
+    throw std::runtime_error("Could not find type for VarId: " + id);
 }
 
 LIR::TypePtr Lowerer::typeof_field(LIR::StructId sid, LIR::FieldId fid) {
@@ -850,7 +903,6 @@ LIR::TypePtr Lowerer::typeof_func_ret(LIR::TypePtr fn_type) {
 // --- Type Conversion Helper ---
 
 LIR::TypePtr Lowerer::convert_type(const std::shared_ptr<AST::Type>& ast_type) {
-    // 🔴 YOUR TASK: Implement this based on your ast.hpp types
     if (dynamic_cast<AST::IntType*>(ast_type.get())) {
         return std::make_shared<LIR::IntType>();
     }
@@ -900,7 +952,7 @@ LIR::RelOp Lowerer::convert_rel_op(AST::BinaryOp op) {
 }
 
 
-// --- Pass 2: TV -> CFG (Implemented for you) ---
+// --- Pass 2: TV -> CFG ---
 
 void Lowerer::build_cfg() {
     LIR::BasicBlock* current_bb = nullptr;
@@ -933,5 +985,58 @@ void Lowerer::build_cfg() {
         }
     }
     
-    // TODO: Remove unreachable basic blocks (as per lower.md)
+    // Remove unreachable basic blocks
+    remove_unreachable_blocks();
+}
+
+void Lowerer::remove_unreachable_blocks() {
+    // Find all reachable blocks starting from entry block
+    std::set<LIR::BbId> reachable;
+    std::vector<LIR::BbId> worklist;
+    
+    // Start from entry block
+    LIR::BbId entry_label = m_current_fun->name + "_entry";
+    worklist.push_back(entry_label);
+    reachable.insert(entry_label);
+    
+    // BFS to find all reachable blocks
+    while (!worklist.empty()) {
+        LIR::BbId current = worklist.back();
+        worklist.pop_back();
+        
+        // Get the basic block
+        auto it = m_current_fun->body.find(current);
+        if (it == m_current_fun->body.end()) {
+            continue;
+        }
+        
+        const LIR::BasicBlock& bb = it->second;
+        
+        // Get successor blocks from the terminal
+        if (auto* jump = std::get_if<LIR::Jump>(&bb.term)) {
+            if (reachable.find(jump->target) == reachable.end()) {
+                reachable.insert(jump->target);
+                worklist.push_back(jump->target);
+            }
+        } else if (auto* branch = std::get_if<LIR::Branch>(&bb.term)) {
+            if (reachable.find(branch->tt) == reachable.end()) {
+                reachable.insert(branch->tt);
+                worklist.push_back(branch->tt);
+            }
+            if (reachable.find(branch->ff) == reachable.end()) {
+                reachable.insert(branch->ff);
+                worklist.push_back(branch->ff);
+            }
+        }
+        // Ret has no successors, so we don't need to handle it
+    }
+    
+    // Remove unreachable blocks
+    for (auto it = m_current_fun->body.begin(); it != m_current_fun->body.end(); ) {
+        if (reachable.find(it->first) == reachable.end()) {
+            it = m_current_fun->body.erase(it);
+        } else {
+            ++it;
+        }
+    }
 }
