@@ -250,8 +250,9 @@ std::unique_ptr<Place> buildPlace(const nlohmann::json& j) {
         return std::make_unique<ArrayAccess>(std::move(array), std::move(index));
     } else if (j.contains("FieldAccess")) {
         const auto& fa = j.at("FieldAccess");
-        auto ptr = buildExp(fa.at(0));
-        std::string field = fa.at(1);
+        // TS6 uses object format: {"ptr": exp, "field": string}
+        auto ptr = buildExp(fa.at("ptr"));
+        std::string field = fa.at("field");
         return std::make_unique<FieldAccess>(std::move(ptr), field);
     } else {
         throw std::runtime_error("Unknown place format");

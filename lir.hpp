@@ -62,7 +62,7 @@ struct NilType : Type {
 struct StructType : Type {
     std::string id;
     explicit StructType(std::string i) : id(std::move(i)) {}
-    void print(std::ostream& os) const override { os << "struct " << id; }
+    void print(std::ostream& os) const override { os << id; }
     bool equals(const Type& other) const override {
         auto o = dynamic_cast<const StructType*>(&other);
         return o && o->id == id;
@@ -238,7 +238,7 @@ inline std::ostream& operator<<(std::ostream& os, const Inst& inst) {
         else if constexpr (std::is_same_v<T, Store>)
             os << "$store " << arg.dst << " " << arg.op;
         else if constexpr (std::is_same_v<T, Gfp>)
-            os << arg.lhs << " = $gfp " << arg.src << ", " << arg.sid << ", " << arg.field;
+            os << arg.lhs << " = $gfp " << arg.src << " " << arg.sid << "::" << arg.field;
         else if constexpr (std::is_same_v<T, Gep>)
             os << arg.lhs << " = $gep " << arg.src << " " << arg.idx << " [" << (arg.checked ? "true" : "false") << "]";
         else if constexpr (std::is_same_v<T, AllocSingle>)
@@ -277,7 +277,7 @@ inline std::ostream& operator<<(std::ostream& os, const Program& prog) {
     for (const auto& [name, s] : prog.structs) {
         os << "struct " << name << " {\n";
         for (const auto& [fname, ftype] : s.fields) {
-            os << "  " << fname << ": " << ftype << ";\n";
+            os << "  " << fname << ": " << ftype << "\n";
         }
         os << "}\n\n";
     }
