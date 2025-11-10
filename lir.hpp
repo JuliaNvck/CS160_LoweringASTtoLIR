@@ -72,7 +72,7 @@ struct StructType : Type {
 struct ArrayType : Type {
     TypePtr element;
     explicit ArrayType(TypePtr e) : element(std::move(e)) {}
-    void print(std::ostream& os) const override { os << "array(" << element << ")"; }
+    void print(std::ostream& os) const override { os << "[" << element << "]"; }
     bool equals(const Type& other) const override {
         if (dynamic_cast<const NilType*>(&other)) return true;
         auto o = dynamic_cast<const ArrayType*>(&other);
@@ -240,11 +240,11 @@ inline std::ostream& operator<<(std::ostream& os, const Inst& inst) {
         else if constexpr (std::is_same_v<T, Gfp>)
             os << arg.lhs << " = $gfp " << arg.src << ", " << arg.sid << ", " << arg.field;
         else if constexpr (std::is_same_v<T, Gep>)
-            os << arg.lhs << " = $gep " << arg.src << ", " << arg.idx; // 'checked' is implicit
+            os << arg.lhs << " = $gep " << arg.src << " " << arg.idx << " [" << (arg.checked ? "true" : "false") << "]";
         else if constexpr (std::is_same_v<T, AllocSingle>)
              os << arg.lhs << " = $alloc_single " << arg.typ;
         else if constexpr (std::is_same_v<T, AllocArray>)
-             os << arg.lhs << " = $alloc_array " << arg.amt << ", " << arg.typ;
+             os << arg.lhs << " = $alloc_array " << arg.amt << " " << arg.typ;
         else if constexpr (std::is_same_v<T, Call>) {
             if (arg.lhs) os << *arg.lhs << " = ";
             os << "$call " << arg.callee;

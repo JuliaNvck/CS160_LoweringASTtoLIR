@@ -244,8 +244,9 @@ std::unique_ptr<Place> buildPlace(const nlohmann::json& j) {
         return std::make_unique<Deref>(std::move(exp));
     } else if (j.contains("ArrayAccess")) {
         const auto& arr = j.at("ArrayAccess");
-        auto array = buildExp(arr.at(0));
-        auto index = buildExp(arr.at(1));
+        // TS5 uses object format: {"array": exp, "idx": exp}
+        auto array = buildExp(arr.at("array"));
+        auto index = buildExp(arr.at("idx"));
         return std::make_unique<ArrayAccess>(std::move(array), std::move(index));
     } else if (j.contains("FieldAccess")) {
         const auto& fa = j.at("FieldAccess");
