@@ -3,9 +3,9 @@ CXX = g++
 # C++ standard and flags
 CXXFLAGS = -std=c++17 -Wall -Wextra -g
 # Linker flags for AddressSanitizer
-LDFLAGS = -fsanitize=address
+# LDFLAGS = -fsanitize=address
 # Add AddressSanitizer flags to compile flags as well
-CXXFLAGS += -fsanitize=address
+# CXXFLAGS += -fsanitize=address
 
 # Executable name
 TARGET = lower
