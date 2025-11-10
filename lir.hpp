@@ -292,6 +292,12 @@ inline std::ostream& operator<<(std::ostream& os, const Terminal& term) {
 }
 
 inline std::ostream& operator<<(std::ostream& os, const Program& prog) {
+    // Print function pointers (lexicographically)
+    for (const auto& [name, type] : prog.funptrs) {
+        os << "funptr " << name << ": " << type << "\n";
+    }
+    if (!prog.funptrs.empty()) os << "\n";
+
     // Print structs (lexicographically)
     for (const auto& [name, s] : prog.structs) {
         os << "struct " << name << " {\n";
@@ -300,12 +306,6 @@ inline std::ostream& operator<<(std::ostream& os, const Program& prog) {
         }
         os << "}\n\n";
     }
-
-    // Print function pointers (lexicographically)
-    for (const auto& [name, type] : prog.funptrs) {
-        os << "funptr " << name << ": " << type << "\n";
-    }
-    if (!prog.funptrs.empty()) os << "\n";
 
     // Print externs (lexicographically)
     for (const auto& [name, type] : prog.externs) {
@@ -328,7 +328,7 @@ inline std::ostream& operator<<(std::ostream& os, const Program& prog) {
     for (const auto& [name, func] : prog.functions) {
         os << "fn " << name << "(";
         for (size_t i = 0; i < func.params.size(); ++i) {
-            os << func.params[i].first << ": " << func.params[i].second;
+            os << func.params[i].first << ":" << func.params[i].second;
             if (i < func.params.size() - 1) os << ", ";
         }
         os << ") -> " << func.rettyp << " {\n";
