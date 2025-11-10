@@ -1,6 +1,7 @@
 #include "lowerer.hpp"
 #include <stdexcept>
 #include <iostream>
+#include <sstream>
 
 // --- Main Entry Point ---
 
@@ -156,10 +157,10 @@ void Lowerer::visit(AST::Assign* n) {
         release({x});
     } else {
         // else
-        //   let x = ⟦lhs⟧ˡ
-        LIR::VarId x = lower_place(n->place.get());
         //   let y = ⟦rhs⟧ᵉ
         LIR::VarId y = lower_exp(n->exp.get());
+        //   let x = ⟦lhs⟧ˡ
+        LIR::VarId x = lower_place(n->place.get());
         //   % Store(x, y)
         m_tv.push_back(LIR::Store{x, y});
         //   release([x, y])
@@ -743,22 +744,29 @@ void Lowerer::lower_stmt(AST::Stmt* stmt) {
     stmt->accept(*this);
 }
 
+// Helper to get a string key for a type (for organizing released vars by type)
+std::string type_key(const LIR::TypePtr& type) {
+    if (!type) return "void";
+    std::ostringstream oss;
+    oss << *type;
+    return oss.str();
+}
+
 // Returns a fresh variable (i.e., unique within this function) of type τ. 
 // Reuses a previously-created fresh variable if possible, that is, if one of type τ was created already for this function and then released 
 // otherwise creates a new fresh variable and inserts it onto the enclosing function's locals.
 // The name should be `_inner<num>`, where `<num>` is a counter that is incremented each time `fresh_{inner, non_inner}_var` are called.
 LIR::VarId Lowerer::fresh_inner_var(LIR::TypePtr type) {
     // ⟦fresh_inner_var(τ)⟧
-    // Check if we have a released var of the same type to reuse (search in reverse for LIFO)
-    for (int i = m_released_inner_vars.size() - 1; i >= 0; --i) {
-        LIR::VarId var_id = m_released_inner_vars[i];
-        LIR::TypePtr var_type = typeof_var(var_id);
-        if (var_type && type && var_type->equals(*type)) {
-            // Reuse this var - remove it from the vector
-            m_released_inner_vars.erase(m_released_inner_vars.begin() + i);
-            return var_id;
-        }
+    // Check if we have a released var of the same type to reuse (LIFO - take from end)
+    std::string key = type_key(type);
+    auto& released_list = m_released_inner_vars[key];
+    if (!released_list.empty()) {
+        LIR::VarId var_id = released_list.back();
+        released_list.pop_back();
+        return var_id;
     }
+    
     LIR::VarId name = "_inner" + std::to_string(m_tmp_counter++);
     m_current_fun->locals[name] = type;
     return name;
@@ -767,16 +775,15 @@ LIR::VarId Lowerer::fresh_inner_var(LIR::TypePtr type) {
 // The name should be `_tmp<num>`, where `<num>` is a counter that is incremented each time `fresh_{inner, non_inner}_var` are called.
 LIR::VarId Lowerer::fresh_non_inner_var(LIR::TypePtr type) {
     // ⟦fresh_non_inner_var(τ)⟧
-    // Check if we have a released var of the same type to reuse (search in reverse for LIFO)
-    for (int i = m_released_non_inner_vars.size() - 1; i >= 0; --i) {
-        LIR::VarId var_id = m_released_non_inner_vars[i];
-        LIR::TypePtr var_type = typeof_var(var_id);
-        if (var_type && type && var_type->equals(*type)) {
-            // Reuse this var - remove it from the vector
-            m_released_non_inner_vars.erase(m_released_non_inner_vars.begin() + i);
-            return var_id;
-        }
+    // Check if we have a released var of the same type to reuse (LIFO - take from end)
+    std::string key = type_key(type);
+    auto& released_list = m_released_non_inner_vars[key];
+    if (!released_list.empty()) {
+        LIR::VarId var_id = released_list.back();
+        released_list.pop_back();
+        return var_id;
     }
+    
     LIR::VarId name = "_tmp" + std::to_string(m_tmp_counter++);
     m_current_fun->locals[name] = type;
     return name;
@@ -790,11 +797,15 @@ void Lowerer::release(std::vector<LIR::VarId> vars) {
     for (const auto& var : vars) {
         // Only release fresh temporaries (ignore user-defined variables)
         if (var.find("_inner") == 0) {
-            // _inner variable
-            m_released_inner_vars.push_back(var);
+            // _inner variable - add to the appropriate type bucket
+            LIR::TypePtr var_type = typeof_var(var);
+            std::string key = type_key(var_type);
+            m_released_inner_vars[key].push_back(var);
         } else if (var.find("_tmp") == 0) {
-            // _tmp (non-inner) variable
-            m_released_non_inner_vars.push_back(var);
+            // _tmp (non-inner) variable - add to the appropriate type bucket
+            LIR::TypePtr var_type = typeof_var(var);
+            std::string key = type_key(var_type);
+            m_released_non_inner_vars[key].push_back(var);
         }
     }
 }

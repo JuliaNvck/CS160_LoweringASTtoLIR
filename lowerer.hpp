@@ -84,9 +84,9 @@ private:
     std::vector<LIR::BbId> m_loop_end_stack;
 
     // --- Released Vars ---
-    // Vectors to keep track of released inner and non-inner vars (LIFO order)
-    std::vector<LIR::VarId> m_released_inner_vars;
-    std::vector<LIR::VarId> m_released_non_inner_vars;
+    // Maps organizing released variables by type (for LIFO reuse with correct types)
+    std::map<std::string, std::vector<LIR::VarId>> m_released_inner_vars;
+    std::map<std::string, std::vector<LIR::VarId>> m_released_non_inner_vars;
 
     // --- Helper Functions (from lower.md) ---
 

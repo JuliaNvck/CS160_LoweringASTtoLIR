@@ -259,6 +259,11 @@ std::unique_ptr<Place> buildPlace(const nlohmann::json& j) {
 
 // Parses Expression representations from JSON.
 std::unique_ptr<Exp> buildExp(const nlohmann::json& j) {
+    // TS4: Nil can be a bare string
+    if (j.is_string() && j.get<std::string>() == "Nil") {
+        return std::make_unique<NilExp>();
+    }
+    
     if (j.contains("Num")) {
         int value = j.at("Num");
         return std::make_unique<Num>(value);
@@ -345,7 +350,26 @@ std::unique_ptr<Exp> buildExp(const nlohmann::json& j) {
         auto type = buildType(j.at("NewSingle"));
         return std::make_unique<NewSingle>(type);
     } else {
-        throw std::runtime_error("Unknown expression format");
+        std::string keys;
+        std::string typeinfo = "unknown";
+        if (j.is_object()) {
+            typeinfo = "object";
+            for (auto it = j.begin(); it != j.end(); ++it) {
+                if (!keys.empty()) keys += ", ";
+                keys += it.key();
+            }
+        } else if (j.is_array()) {
+            typeinfo = "array of size " + std::to_string(j.size());
+        } else if (j.is_string()) {
+            typeinfo = "string: " + j.get<std::string>();
+        } else if (j.is_number()) {
+            typeinfo = "number";
+        } else if (j.is_null()) {
+            typeinfo = "null";
+        } else if (j.is_boolean()) {
+            typeinfo = "boolean";
+        }
+        throw std::runtime_error("Unknown expression format. Type: " + typeinfo + ", Keys: " + keys);
     }
 }
 

@@ -85,7 +85,7 @@ struct ArrayType : Type {
 struct PtrType : Type {
     TypePtr element;
     explicit PtrType(TypePtr e) : element(std::move(e)) {}
-    void print(std::ostream& os) const override { os << "ptr(" << element << ")"; }
+    void print(std::ostream& os) const override { os << "&" << element; }
     bool equals(const Type& other) const override {
         if (dynamic_cast<const NilType*>(&other)) return true;
         auto o = dynamic_cast<const PtrType*>(&other);
@@ -236,7 +236,7 @@ inline std::ostream& operator<<(std::ostream& os, const Inst& inst) {
         else if constexpr (std::is_same_v<T, Load>)
             os << arg.lhs << " = $load " << arg.src;
         else if constexpr (std::is_same_v<T, Store>)
-            os << "$store " << arg.dst << ", " << arg.op;
+            os << "$store " << arg.dst << " " << arg.op;
         else if constexpr (std::is_same_v<T, Gfp>)
             os << arg.lhs << " = $gfp " << arg.src << ", " << arg.sid << ", " << arg.field;
         else if constexpr (std::is_same_v<T, Gep>)
